@@ -14,13 +14,16 @@ public class Grappling : MonoBehaviour
     
     [Header("Grappling")]
     [SerializeField] private float maxGrappleDist;
-    [SerializeField] private float grappleDelay;
 
     //what if this was effected by delta mouse pos during the grapple :OOOOOO
     [SerializeField] private float overshootYAxis;
     [SerializeField] private float pullDelay;
+    [SerializeField] private float grappleSpeed;
 
     private Vector3 grapplePoint;
+    private float grappleProgression;
+    private float grappleDelay;
+    private float grappleTime;
 
     [SerializeField] private float grappleCD;
     private float grappleCDTimer;
@@ -28,23 +31,25 @@ public class Grappling : MonoBehaviour
     private bool isGrappling;
 
     private Rigidbody rb;
-    public bool freeze;
-    private bool activeGrapple;
+    private bool freeze;
+/*    private bool activeGrapple;*/
 
     [Header("Spring")]
     [SerializeField] private int quality;
     [SerializeField] Spring spring;
     [SerializeField] float damper;
-    [SerializeField] float strenght;
-    [SerializeField] float velocity;
+    [SerializeField] float strength;
+/*    [SerializeField] float velocity;*/
     [SerializeField] float waveCount;
     [SerializeField] float waveHeight;
     [SerializeField] AnimationCurve affectCurve;
 
-    private void Start()
+    private void Awake()
     {
         //get playerMovement;
         rb = GetComponent<Rigidbody>();
+        spring = new Spring();
+        spring.SetTarget(0);
     }
 
     private void Update()
@@ -68,8 +73,13 @@ public class Grappling : MonoBehaviour
     {
         if(isGrappling)
         {
-            grappleRope.SetPosition(0, gunTip.position);
-            /*grappleRope.SetPosition(1, Vector3.Lerp());*/
+            /*            grappleRope.SetPosition(0, gunTip.position);
+                        grappleProgression += grappleTime * Time.deltaTime;
+                        grappleRope.SetPosition(1, Vector3.Lerp(gunTip.position, grapplePoint, grappleProgression));*/
+            DrawRope();
+        } else
+        {
+            grappleRope.positionCount = 0;
         }
     }
 
@@ -87,7 +97,7 @@ public class Grappling : MonoBehaviour
         if (grappleCDTimer > 0) return;
 
         isGrappling = true;
-
+        grappleProgression = 0.0f;
         freeze = true;
 
         //This looks like it could share functionality with the Lidar!
@@ -96,17 +106,18 @@ public class Grappling : MonoBehaviour
         {
             grapplePoint = hit.point;
 
+            SetGrappleTime();
             Invoke(nameof(ExecuteGrapple), grappleDelay);
         }
         else
         {
             grapplePoint = cam.position + cam.forward * maxGrappleDist;
 
+            SetGrappleTime();
             Invoke(nameof(StopGrapple), grappleDelay);
         }
 
         grappleRope.enabled = true;
-        grappleRope.SetPosition(1, grapplePoint);
     }
 
     private void ExecuteGrapple()
@@ -134,6 +145,8 @@ public class Grappling : MonoBehaviour
         grappleCDTimer = grappleCD;
 
         grappleRope.enabled = false;
+
+        spring.Reset();
     }
 
     public Vector3 CalculateJumpVelocity(Vector3 startingPoint, Vector3 endPoint, float trajectoryHeight)
@@ -147,11 +160,41 @@ public class Grappling : MonoBehaviour
 
         return velocityY + velocityXZ;
     }
+    private void SetGrappleTime()
+    {
+        float distance = Vector3.Distance(gunTip.position, grapplePoint);
+        grappleTime = grappleSpeed / distance;
+        grappleDelay = 1 / grappleTime;
+    }
+
+    void DrawRope()
+    {
+        if (grappleRope.positionCount == 0)
+        {
+            spring.SetVelocity(grappleSpeed);
+            grappleRope.positionCount = quality + 1;
+        }
+
+        spring.SetDamper(damper);
+        spring.SetStrength(strength);
+        spring.Update(Time.deltaTime);
+
+        var up = Quaternion.LookRotation((grapplePoint - gunTip.position).normalized) * Vector3.up;
+
+        grappleProgression += grappleTime * Time.deltaTime;
+        Vector3 currentGrapplePosition = Vector3.Lerp(gunTip.position, grapplePoint, grappleProgression);
+
+        for (var i = 0; i < quality + 1; i++)
+        {
+            float delta = i / (float)quality;
+            Vector3 offset = up * waveHeight * Mathf.Sin(delta * waveCount * Mathf.PI) * spring.Value * affectCurve.Evaluate(delta);
+
+            grappleRope.SetPosition(i, Vector3.Lerp(gunTip.position, currentGrapplePosition, delta) + offset);
+        }
+    }
 
     public void JumpToPosition(Vector3 targetPosition, float trajectoryHeight)
     {
-        activeGrapple = true;
-
         velocityToSet = CalculateJumpVelocity(transform.position, targetPosition, trajectoryHeight);
         Invoke(nameof(SetVelocity), pullDelay);
     }
@@ -160,4 +203,5 @@ public class Grappling : MonoBehaviour
     {
         rb.velocity = velocityToSet;
     }
+
 }
